@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+</head>
+<!--
+ 샘플링 이니, 그냥 잘 돌아가는 경우만 만들어 놓았는데,
+ 실제로 server-sent event 관련 구현 시, 서버와 통신 에러 ( 503 오류, IOException, IllegalStateException.. 등 )
+ EventStream 재생성 시, 생성 완료 전 서버전송 데이터의 유실 등등..
+ 에 대한 예외처리를 해 주어야 한다.
+ UI 코드또한 대충 만들어 놓은것이니 그냥 이해 하시기 바람
+-->
+<body>
+<div id="test-app">
+    <br>
+	<table>
+		<tr>
+			<td>
+				<template>
+				  <form v-on:submit.prevent>
+					<div>
+					  <label for="product">상품: </label>
+					  <input id="product" type="text" v-model="order.product">
+					</div>
+					  <label for="amount">가격: </label>
+					  <input id="amount" type="text" v-model="order.amount">
+					</div>
+					<button v-on:click="submitOrder">구매</button>
+				  </form>
+				</template>
+			</td>
+		</tr>
+	</table>
+    <br>
+    <template>
+        <div>
+            <table>
+                <thead>
+                <tr>
+                    <th>주문번호</th>
+					<th>품목</th>
+                    <th>결제 ID</th>
+					<th>상태</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr v-for="item in shippings">
+					<td>{{item.orderId}}</td>
+                    <td>{{item.order.items}}</td>
+                    <td>{{item.payment.paymentId}}</td>
+					<td>배송시작</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </template>
+
+</div>
+</body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.5.17/vue.js"></script>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+<script>
+var app = new Vue({
+    el: '#test-app',
+    data: {
+        shippings : [],
+		order: {},
+    },
+    methods: {
+        initialize() {
+            this.shippings = [];
+			this.order = {};
+            this.eventHook("http://localhost:19092/shipping/subscribe", this.renderMessage);
+            console.log("initialized");
+        },
+		submitOrder() {
+			//alert("submitOrder called");
+			console.log("submitOrder() called");
+			let purchaseItems = this.order.product.split(",");
+			let purchaseOrder = { items: purchaseItems };
+			axios.post("http://localhost:19090/orders", purchaseOrder)
+				.then((res) => {
+					console.log(res.data);
+					this.makePayment(res.data.orderId);
+				})
+				.catch((error) => {
+				  console.error(error);
+				})
+				.finally(() => {
+				  console.log("submitOrder finished");
+				});
+		},
+		makePayment(purchaseOrderId) {
+			let purchasePayment = { orderId: purchaseOrderId, amount: this.order.amount};
+			axios.post("http://localhost:19091/payments", purchasePayment)
+				.then((res) => {
+					console.log(res.data);
+				})
+				.catch((error) => {
+				  console.error(error);
+				})
+				.finally(() => {
+				  console.log("makePayment finished");
+				});
+			
+		},
+        eventHook(sourceUrl, func) {
+            const eventSource = new EventSource(sourceUrl);
+            console.log(eventSource);
+
+            eventSource.addEventListener('message', func, false);
+
+            eventSource.addEventListener('open', function(event) {
+                console.log("connection opened");
+            }, false);
+
+            eventSource.addEventListener('error', function(event) {
+                if (event.readyState == EventSource.CLOSED) {
+                    console.log("connection closed");
+                }
+            }, false);
+            console.log("event hooked");
+        },
+        renderMessage(event) {
+
+            // 데이터 retrieve
+            let item = JSON.parse(event.data);
+            console.log(item);
+
+            // Map 에 업데이트
+            this.shippings.push(item);
+        }
+    },
+    created() {
+        console.log("created");
+    },
+    mounted() {
+        this.initialize();
+        console.log("mounted");
+    }
+});
+</script>
+
+</html>
